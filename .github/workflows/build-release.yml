@@ -1,0 +1,121 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win
+            label: Windows
+          - os: macos-latest
+            platform: mac
+            label: macOS
+          - os: ubuntu-latest
+            platform: linux
+            label: Linux
+
+    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.label }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Linux-Abhängigkeiten installieren
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxtst-dev libxt-dev \
+            libxinerama-dev libx11-xcb-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev \
+            rpm fakeroot
+
+      - name: npm install
+        run: npm install
+
+      - name: App bauen (${{ matrix.label }})
+        run: npm run build:${{ matrix.platform }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Build-Artefakte anzeigen
+        shell: bash
+        run: ls -lh dist/
+
+      - name: Artefakte hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: step-recorder-${{ matrix.platform }}
+          path: |
+            dist/*-portable.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: warn
+          retention-days: 7
+
+  release:
+    name: GitHub Release erstellen
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Alle Artefakte herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Artefakte auflisten
+        run: find artifacts/ -type f | sort
+
+      - name: Release erstellen & Dateien hochladen
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Step Recorder ${{ github.ref_name }}"
+          body: |
+            ## Step Recorder ${{ github.ref_name }}
+            > by freakms – ich schwöre feierlich ich bin ein tunichtgut
+
+            ### Downloads
+
+            | Plattform | Datei | Hinweis |
+            |-----------|-------|---------|
+            | 🪟 Windows | `StepRecorder-*-portable.exe` | Einfach starten – kein Installer |
+            | 🍎 macOS   | `.dmg` | Öffnen, App in Programme ziehen |
+            | 🐧 Linux   | `.AppImage` | `chmod +x` dann starten |
+
+            ### Aus Quellcode starten
+            ```bash
+            npm install
+            npm start
+            ```
+          files: |
+            artifacts/**/*-portable.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.AppImage
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

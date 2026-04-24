@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Step Recorder</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f7f7f5; --surface: #ffffff; --surface2: #f2f2f0;
+    --border: rgba(0,0,0,0.1); --border2: rgba(0,0,0,0.18);
+    --text: #1a1a1a; --text2: #666; --text3: #999;
+    --accent: #0055cc; --accent-bg: #e8f0ff; --accent-text: #0044aa;
+    --red: #cc2200; --red-bg: #fff0ee; --red-text: #aa1500;
+    --green: #1a7a3c; --green-bg: #eafaf0; --green-text: #145c2c;
+    --amber: #9a6200; --amber-bg: #fff8e6; --amber-text: #7a4e00;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a; --surface: #242424; --surface2: #2e2e2e;
+      --border: rgba(255,255,255,0.1); --border2: rgba(255,255,255,0.18);
+      --text: #f0f0f0; --text2: #aaa; --text3: #666;
+      --accent-bg: #1a2e4a; --accent-text: #6699ee;
+      --red-bg: #2e1510; --red-text: #ff6b55;
+      --green-bg: #102010; --green-text: #55cc7a;
+      --amber-bg: #2a1e00; --amber-text: #ffcc55;
+    }
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* TITLEBAR */
+  .titlebar { display: flex; align-items: center; gap: 10px; padding: 12px 18px 10px;
+    border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0;
+    -webkit-app-region: drag; }
+  .titlebar * { -webkit-app-region: no-drag; }
+  .titlebar h1 { font-size: 15px; font-weight: 600; flex: 1; }
+  .step-count { font-size: 12px; color: var(--text3); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); flex-shrink: 0; }
+  .status-dot.recording { background: var(--red); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.25} }
+  .status-label { font-size: 12px; color: var(--text2); max-width: 260px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* TOOLBAR */
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 18px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .btn { padding: 7px 13px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+    cursor: pointer; border: 1px solid var(--border2); background: var(--surface2); color: var(--text);
+    transition: opacity .15s, transform .1s; white-space: nowrap; }
+  .btn:hover:not(:disabled) { opacity: 0.78; }
+  .btn:active:not(:disabled) { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent); }
+  .btn-danger  { background: var(--red-bg);    color: var(--red-text);    border-color: var(--red); }
+  .btn-success { background: var(--green-bg);  color: var(--green-text);  border-color: var(--green); }
+  .spacer { flex: 1; }
+  .shortcut-hint { font-size: 11px; color: var(--text3); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+
+  /* MODE SELECTOR */
+  .mode-bar { display: none; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 18px; background: var(--amber-bg); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .mode-bar.visible { display: flex; }
+  .mode-label { font-size: 12px; color: var(--amber-text); font-weight: 500; margin-right: 4px; }
+  .mode-btn { padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500; cursor: pointer;
+    border: 1px solid var(--border2); background: var(--surface); color: var(--text2); transition: all .15s; }
+  .mode-btn.active { background: var(--accent-bg); color: var(--accent-text); border-color: var(--accent); }
+  .mode-btn:hover:not(.active) { background: var(--surface2); }
+  .mode-desc { font-size: 11px; color: var(--text3); margin-left: 4px; }
+
+  /* CONTENT */
+  .content { flex: 1; overflow-y: auto; padding: 16px 18px; }
+
+  /* SOURCE PICKER */
+  .source-picker { display: none; }
+  .source-picker.visible { display: block; }
+  .source-picker h2 { font-size: 14px; font-weight: 600; margin-bottom: 12px; }
+  .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+  .source-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .source-card:hover { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+  .source-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 6px; background: var(--surface2); display: block; }
+  .source-card .src-name { font-size: 12px; font-weight: 500; margin-top: 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .source-card .src-type { font-size: 11px; color: var(--text3); }
+
+  /* MODE PICKER (in source picker) */
+  .mode-picker-wrap { margin-bottom: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+  .mode-picker-wrap h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; }
+  .mode-options { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mode-option { flex: 1; min-width: 140px; padding: 10px 14px; border-radius: var(--radius-sm);
+    border: 1.5px solid var(--border); background: var(--surface2); cursor: pointer; transition: all .15s; }
+  .mode-option:hover { border-color: var(--accent); background: var(--accent-bg); }
+  .mode-option.selected { border-color: var(--accent); background: var(--accent-bg); }
+  .mode-option .mo-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+  .mode-option.selected .mo-title { color: var(--accent-text); }
+  .mode-option .mo-desc { font-size: 11px; color: var(--text2); line-height: 1.4; }
+  .mode-option .mo-icon { font-size: 18px; margin-bottom: 5px; }
+
+  /* STEPS */
+  .steps-section { display: none; }
+  .steps-section.visible { display: block; }
+  .steps-list { display: flex; flex-direction: column; gap: 12px; }
+  .step-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .step-header { display: flex; align-items: center; gap: 10px; padding: 9px 13px;
+    border-bottom: 1px solid var(--border); background: var(--surface2); }
+  .step-badge { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-bg); color: var(--accent-text);
+    font-size: 11px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-badge.auto { background: var(--amber-bg); color: var(--amber-text); }
+  .step-title-wrap { flex: 1; min-width: 0; }
+  .step-title { font-size: 13px; font-weight: 500; border: none; background: transparent; color: var(--text);
+    width: 100%; outline: none; padding: 0; }
+  .step-title:focus { text-decoration: underline; text-underline-offset: 2px; }
+  .step-time { font-size: 11px; color: var(--text3); }
+  .step-del { padding: 3px 8px; font-size: 11px; border: 1px solid var(--border); border-radius: 4px;
+    background: transparent; color: var(--text2); cursor: pointer; }
+  .step-del:hover { background: var(--red-bg); color: var(--red-text); border-color: var(--red); }
+  .step-body { display: grid; grid-template-columns: 55% 45%; }
+  .step-img-wrap { padding: 10px; border-right: 1px solid var(--border); }
+  .step-img { width: 100%; display: block; border-radius: 6px; border: 1px solid var(--border); cursor: zoom-in; transition: opacity .15s; }
+  .step-img:hover { opacity: 0.88; }
+  .step-notes { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .step-notes label { font-size: 11px; color: var(--text2); font-weight: 500; }
+  .step-notes textarea { flex: 1; resize: none; font-size: 13px; font-family: inherit;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px;
+    background: var(--surface2); color: var(--text); line-height: 1.5; min-height: 90px; }
+  .step-notes textarea:focus { outline: none; border-color: var(--accent); }
+  .step-notes textarea::placeholder { color: var(--text3); }
+
+  /* EMPTY STATE */
+  .empty-state { text-align: center; padding: 4rem 2rem; color: var(--text2);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; opacity: 0.5; }
+
+  /* EXPORT BAR */
+  .export-bar { display: none; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 10px 18px; border-top: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  .export-bar.visible { display: flex; }
+  .export-bar span { font-size: 12px; color: var(--text2); flex: 1; }
+
+  /* FLASH */
+  .flash { position: fixed; inset: 0; background: white; opacity: 0; pointer-events: none; z-index: 9999; transition: opacity .05s; }
+  .flash.active { opacity: 0.3; }
+
+  /* LIGHTBOX */
+  .lightbox { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 10000;
+    align-items: center; justify-content: center; cursor: zoom-out; }
+  .lightbox.visible { display: flex; }
+  .lightbox img { max-width: 96vw; max-height: 90vh; border-radius: 8px; }
+  .lb-close { position: absolute; top: 16px; right: 20px; color: #fff; font-size: 26px; cursor: pointer; }
+  .lb-close:hover { opacity: 0.7; }
+
+  /* TOAST */
+  .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border2); border-radius: var(--radius); padding: 9px 15px; font-size: 13px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.15); opacity: 0; transform: translateY(6px);
+    transition: opacity .2s, transform .2s; pointer-events: none; z-index: 20000; max-width: 300px; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TITLEBAR -->
+  <div class="titlebar">
+    <h1>Step Recorder</h1>
+    <span class="step-count" id="stepCount">0 Schritte</span>
+    <div class="status-dot" id="statusDot"></div>
+    <span class="status-label" id="statusLabel">Bereit</span>
+    <span style="font-size:10px;color:var(--text3);margin-left:8px">by freakms – ich schwöre feierlich ich bin ein tunichtgut</span>
+  </div>
+
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <button class="btn btn-primary" id="btnPickSource">Quelle wählen &amp; aufnehmen</button>
+    <button class="btn btn-danger" id="btnStop" disabled>Aufnahme beenden</button>
+    <button class="btn" id="btnSnap" disabled>📸 Screenshot jetzt</button>
+    <span class="spacer"></span>
+    <span class="shortcut-hint" title="Globaler Shortcut – funktioniert auch wenn Step Recorder im Hintergrund ist">F9 = Screenshot</span>
+  </div>
+
+  <!-- MODE BAR (shown during recording) -->
+  <div class="mode-bar" id="modeBar">
+    <span class="mode-label">Aufnahmemodus:</span>
+    <button class="mode-btn" data-mode="manual"      id="modeManual">✋ Manuell (F9)</button>
+    <button class="mode-btn" data-mode="click"       id="modeClick">🖱 Bei jedem Klick</button>
+    <button class="mode-btn" data-mode="click-smart" id="modeClickSmart">🎯 Klick (ohne Step Recorder)</button>
+    <span class="mode-desc" id="modeDesc"></span>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content" id="content">
+
+    <!-- SOURCE PICKER -->
+    <div class="source-picker" id="sourcePicker">
+
+      <!-- MODE CHOOSER -->
+      <div class="mode-picker-wrap">
+        <h3>Aufnahmemodus wählen</h3>
+        <div class="mode-options">
+          <div class="mode-option selected" data-mode="manual">
+            <div class="mo-icon">✋</div>
+            <div class="mo-title">Manuell</div>
+            <div class="mo-desc">Screenshot nur per F9 oder Schaltfläche</div>
+          </div>
+          <div class="mode-option" data-mode="click">
+            <div class="mo-icon">🖱</div>
+            <div class="mo-title">Bei jedem Klick</div>
+            <div class="mo-desc">Jeder Mausklick löst automatisch einen Screenshot aus</div>
+          </div>
+          <div class="mode-option" data-mode="click-smart">
+            <div class="mo-icon">🎯</div>
+            <div class="mo-title">Klick (smart)</div>
+            <div class="mo-desc">Wie „bei jedem Klick", aber Klicks auf Step Recorder selbst werden ignoriert</div>
+          </div>
+        </div>
+      </div>
+
+      <h2>Bildschirm, Fenster oder Tab auswählen:</h2>
+      <div class="source-grid" id="sourceGrid"></div>
+    </div>
+
+    <!-- STEPS -->
+    <div class="steps-section" id="stepsSection">
+      <div class="steps-list" id="stepsList"></div>
+    </div>
+
+    <!-- EMPTY -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">🎬</div>
+      <div style="font-size:15px;font-weight:500;margin-bottom:8px">Bereit zur Aufzeichnung</div>
+      <div>Klicke auf <strong>Quelle wählen &amp; aufnehmen</strong>, dann wähle Modus, Fenster oder Tab.</div>
+      <div style="margin-top:10px;font-size:12px;color:var(--text3)">F9 = manueller Screenshot · oder automatisch bei jedem Klick</div>
+    </div>
+
+  </div>
+
+  <!-- EXPORT BAR -->
+  <div class="export-bar" id="exportBar">
+    <span>Anleitung exportieren:</span>
+    <button class="btn btn-success" id="btnExportHtml">HTML exportieren</button>
+    <button class="btn" id="btnExportMd">Markdown exportieren</button>
+    <button class="btn btn-danger" id="btnClear">Alles löschen</button>
+  </div>
+</div>
+
+<div class="flash" id="flash"></div>
+<div class="lightbox" id="lightbox"><span class="lb-close" id="lbClose">✕</span><img id="lbImg" src="" alt=""></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const steps = [];
+let isRecording = false;
+let captureStream = null;
+let selectedMode = 'manual';
+
+const btnPickSource = document.getElementById('btnPickSource');
+const btnStop       = document.getElementById('btnStop');
+const btnSnap       = document.getElementById('btnSnap');
+const statusDot     = document.getElementById('statusDot');
+const statusLabel   = document.getElementById('statusLabel');
+const stepCount     = document.getElementById('stepCount');
+const sourcePicker  = document.getElementById('sourcePicker');
+const sourceGrid    = document.getElementById('sourceGrid');
+const stepsSection  = document.getElementById('stepsSection');
+const stepsList     = document.getElementById('stepsList');
+const emptyState    = document.getElementById('emptyState');
+const exportBar     = document.getElementById('exportBar');
+const modeBar       = document.getElementById('modeBar');
+const modeDesc      = document.getElementById('modeDesc');
+const flash         = document.getElementById('flash');
+const lightbox      = document.getElementById('lightbox');
+const lbImg         = document.getElementById('lbImg');
+const lbClose       = document.getElementById('lbClose');
+const toastEl       = document.getElementById('toast');
+let toastTimer;
+
+// ─── Mode option click handlers (source picker) ───────────────────
+document.querySelectorAll('.mode-option').forEach(el => {
+  el.addEventListener('click', () => {
+    document.querySelectorAll('.mode-option').forEach(x => x.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedMode = el.dataset.mode;
+  });
+});
+
+// ─── Mode bar buttons (during recording) ─────────────────────────
+const modeDescMap = {
+  'manual':      'F9 oder Schaltfläche drücken für Screenshot',
+  'click':       'Jeder Mausklick → Screenshot (inkl. Klicks auf Step Recorder)',
+  'click-smart': 'Jeder Klick außerhalb von Step Recorder → Screenshot',
+};
+document.querySelectorAll('.mode-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const mode = btn.dataset.mode;
+    selectedMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    modeDesc.textContent = modeDescMap[mode] || '';
+    await window.electronAPI.setCaptureMode(mode);
+    showToast('Modus: ' + btn.textContent.trim());
+  });
+});
+
+function setActiveModeBtn(mode) {
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  modeDesc.textContent = modeDescMap[mode] || '';
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────
+function showToast(msg) {
+  clearTimeout(toastTimer);
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2600);
+}
+function flashScreen() {
+  flash.classList.add('active');
+  setTimeout(() => flash.classList.remove('active'), 140);
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function timeStr() { return new Date().toLocaleTimeString('de-DE'); }
+
+function updateUI() {
+  const n = steps.length;
+  stepCount.textContent = n + ' Schritt' + (n !== 1 ? 'e' : '');
+  exportBar.classList.toggle('visible', n > 0);
+  if (sourcePicker.classList.contains('visible')) return;
+  if (n === 0 && !isRecording) {
+    emptyState.style.display = '';
+    stepsSection.classList.remove('visible');
+  } else {
+    emptyState.style.display = 'none';
+    stepsSection.classList.add('visible');
+  }
+}
+
+// ─── Source picker ────────────────────────────────────────────────
+btnPickSource.onclick = async () => {
+  const sources = await window.electronAPI.getSources();
+  sourceGrid.innerHTML = '';
+  sources.forEach(src => {
+    const card = document.createElement('div');
+    card.className = 'source-card';
+    card.innerHTML = `<img src="${src.thumbnail}" alt=""><div class="src-name" title="${esc(src.name)}">${esc(src.name)}</div><div class="src-type">${src.id.startsWith('screen') ? '🖥 Bildschirm' : '🪟 Fenster'}</div>`;
+    card.onclick = () => startWithSource(src);
+    sourceGrid.appendChild(card);
+  });
+  emptyState.style.display = 'none';
+  stepsSection.classList.remove('visible');
+  sourcePicker.classList.add('visible');
+};
+
+async function startWithSource(src) {
+  sourcePicker.classList.remove('visible');
+  try {
+    captureStream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: src.id } }
+    });
+  } catch(e) {
+    showToast('Fehler: ' + e.message); updateUI(); return;
+  }
+
+  const res = await window.electronAPI.setSource({ sourceId: src.id, mode: selectedMode });
+  isRecording = true;
+
+  btnPickSource.disabled = false;
+  btnStop.disabled = false;
+  btnSnap.disabled = false;
+  statusDot.classList.add('recording');
+  statusLabel.textContent = src.name;
+
+  modeBar.classList.add('visible');
+  setActiveModeBtn(selectedMode);
+
+  if ((selectedMode === 'click' || selectedMode === 'click-smart') && res.hookAvailable === false) {
+    showToast('⚠ Automatischer Klick-Modus nicht verfügbar – manueller Modus aktiv');
+    selectedMode = 'manual';
+    setActiveModeBtn('manual');
+  } else {
+    const modeNames = { manual: 'Manuell (F9)', click: 'Klick-Auto', 'click-smart': 'Klick-Smart' };
+    showToast('Aufnahme gestartet · ' + (modeNames[selectedMode] || selectedMode));
+  }
+
+  updateUI();
+}
+
+// ─── Stop ─────────────────────────────────────────────────────────
+btnStop.onclick = stopRecording;
+async function stopRecording() {
+  if (captureStream) { captureStream.getTracks().forEach(t => t.stop()); captureStream = null; }
+  await window.electronAPI.stopRecording();
+  isRecording = false;
+  btnStop.disabled = true;
+  btnSnap.disabled = true;
+  statusDot.classList.remove('recording');
+  statusLabel.textContent = steps.length > 0 ? 'Bereit zum Exportieren' : 'Bereit';
+  modeBar.classList.remove('visible');
+  updateUI();
+  if (steps.length > 0) showToast('Aufnahme beendet – Bemerkungen ergänzen und exportieren');
+}
+
+// ─── Screenshot ───────────────────────────────────────────────────
+async function captureNow(label, auto) {
+  if (!captureStream) return;
+  const track = captureStream.getVideoTracks()[0];
+  let dataUrl;
+  try {
+    const ic = new ImageCapture(track);
+    const bm = await ic.grabFrame();
+    const cv = document.createElement('canvas');
+    cv.width = bm.width; cv.height = bm.height;
+    cv.getContext('2d').drawImage(bm, 0, 0);
+    dataUrl = cv.toDataURL('image/png');
+  } catch(e) {
+    // Fallback via video element
+    const vid = document.createElement('video');
+    vid.srcObject = new MediaStream([track]);
+    await new Promise(r => { vid.onloadedmetadata = r; vid.play(); });
+    const cv = document.createElement('canvas');
+    cv.width = vid.videoWidth; cv.height = vid.videoHeight;
+    cv.getContext('2d').drawImage(vid, 0, 0);
+    dataUrl = cv.toDataURL('image/png');
+    vid.pause();
+  }
+  flashScreen();
+  const step = { id: Date.now(), label: label || ('Schritt ' + (steps.length + 1)), time: timeStr(), img: dataUrl, note: '', auto: !!auto };
+  steps.push(step);
+  renderSteps(); updateUI();
+  setTimeout(() => document.getElementById('content').scrollTo({ top: 999999, behavior: 'smooth' }), 60);
+}
+
+btnSnap.onclick = () => captureNow(null, false);
+window.electronAPI.onTriggerScreenshot(({ label, auto }) => captureNow(label, auto));
+
+// ─── Render ───────────────────────────────────────────────────────
+function renderSteps() {
+  stepsList.innerHTML = steps.map((s, i) => `
+    <div class="step-card" id="card-${s.id}">
+      <div class="step-header">
+        <div class="step-badge ${s.auto ? 'auto' : ''}" title="${s.auto ? 'Automatischer Klick-Screenshot' : 'Manueller Screenshot'}">${i + 1}</div>
+        <div class="step-title-wrap">
+          <input type="text" class="step-title" value="${esc(s.label)}" oninput="updateLabel(${s.id},this.value)" placeholder="Schrittbeschreibung…">
+          <div class="step-time">${esc(s.time)}${s.auto ? ' · 🖱 auto' : ''}</div>
+        </div>
+        <button class="step-del" onclick="deleteStep(${s.id})">Entfernen</button>
+      </div>
+      <div class="step-body">
+        <div class="step-img-wrap">
+          <img class="step-img" src="${s.img}" onclick="openLightbox(${s.id})" title="Vergrößern">
+        </div>
+        <div class="step-notes">
+          <label>Bemerkung</label>
+          <textarea placeholder="Was soll der Nutzer hier tun?…" oninput="updateNote(${s.id},this.value)">${esc(s.note)}</textarea>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+window.deleteStep  = (id) => { const i = steps.findIndex(s=>s.id===id); if(i>-1) steps.splice(i,1); renderSteps(); updateUI(); };
+window.updateLabel = (id, v) => { const s = steps.find(s=>s.id===id); if(s) s.label = v; };
+window.updateNote  = (id, v) => { const s = steps.find(s=>s.id===id); if(s) s.note  = v; };
+
+// ─── Lightbox ─────────────────────────────────────────────────────
+window.openLightbox = (id) => { const s = steps.find(s=>s.id===id); if(!s) return; lbImg.src=s.img; lightbox.classList.add('visible'); };
+lbClose.onclick = () => lightbox.classList.remove('visible');
+lightbox.onclick = (e) => { if(e.target===lightbox) lightbox.classList.remove('visible'); };
+document.addEventListener('keydown', e => { if(e.key==='Escape') lightbox.classList.remove('visible'); });
+
+// ─── Export ───────────────────────────────────────────────────────
+document.getElementById('btnExportHtml').onclick = exportHtml;
+document.getElementById('btnExportMd').onclick   = exportMd;
+document.getElementById('btnClear').onclick = () => {
+  if (!confirm('Alle ' + steps.length + ' Schritte wirklich löschen?')) return;
+  steps.splice(0); renderSteps(); updateUI();
+};
+
+async function exportHtml() {
+  const date = new Date().toLocaleDateString('de-DE', { day:'2-digit', month:'long', year:'numeric' });
+  const body = steps.map((s, i) => `
+    <section style="margin-bottom:2.5rem;page-break-inside:avoid">
+      <h2 style="font-size:16px;color:#111;margin-bottom:4px">Schritt ${i+1}: ${esc(s.label)}</h2>
+      <p style="font-size:11px;color:#aaa;margin-bottom:10px">${esc(s.time)}</p>
+      <img src="${s.img}" style="max-width:100%;border:1px solid #e0e0e0;border-radius:8px;display:block;margin-bottom:12px">
+      ${s.note ? `<div style="background:#f5f8ff;border-left:3px solid #2255cc;padding:10px 14px;border-radius:0 6px 6px 0;font-size:14px;color:#222;line-height:1.6">${esc(s.note)}</div>` : ''}
+    </section>`).join('');
+  const html = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Anleitung – ${date}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:820px;margin:48px auto;padding:0 24px;color:#1a1a1a}h1{font-size:24px;margin-bottom:4px}.meta{color:#aaa;font-size:13px;margin-bottom:40px}@media print{section{page-break-inside:avoid}}</style></head><body><h1>Schritt-für-Schritt Anleitung</h1><p class="meta">Erstellt am ${date} &middot; ${steps.length} Schritte</p>${body}</body></html>`;
+  const res = await window.electronAPI.saveFile({ defaultName: 'anleitung.html', content: html, filters: [{ name: 'HTML', extensions: ['html'] }] });
+  if (res.ok) showToast('HTML gespeichert ✓');
+}
+
+async function exportMd() {
+  const date = new Date().toLocaleDateString('de-DE', { day:'2-digit', month:'long', year:'numeric' });
+  let md = `# Schritt-für-Schritt Anleitung\n\n_${date} · ${steps.length} Schritte_\n\n---\n\n`;
+  steps.forEach((s, i) => {
+    md += `## Schritt ${i+1}: ${s.label}\n\n*${s.time}*\n\n![Schritt ${i+1}](${s.img})\n\n`;
+    if (s.note) md += `> ${s.note.replace(/\n/g, '\n> ')}\n\n`;
+    md += '---\n\n';
+  });
+  const res = await window.electronAPI.saveFile({ defaultName: 'anleitung.md', content: md, filters: [{ name: 'Markdown', extensions: ['md'] }] });
+  if (res.ok) showToast('Markdown gespeichert ✓');
+}
+
+updateUI();
+</script>
+</body>
+</html>
