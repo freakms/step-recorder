@@ -37,6 +37,20 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: Versionsnummer aus Tag in package.json setzen
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "Setze Version: $VERSION"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = '$VERSION';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          cat package.json | grep '"version"'
+
       - name: Linux-Abhängigkeiten installieren
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -101,7 +115,7 @@ jobs:
 
             | Plattform | Datei | Hinweis |
             |-----------|-------|---------|
-            | 🪟 Windows | `StepRecorder-*-portable.exe` | Einfach starten – kein Installer |
+            | 🪟 Windows | `StepRecorder-${{ github.ref_name }}-portable.exe` | Einfach starten – kein Installer |
             | 🍎 macOS   | `.dmg` | Öffnen, App in Programme ziehen |
             | 🐧 Linux   | `.AppImage` | `chmod +x` dann starten |
 
